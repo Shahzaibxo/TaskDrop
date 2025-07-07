@@ -1,32 +1,78 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, GripVertical } from 'lucide-react';
+import { Plus, Trash2, GripVertical, User, Edit2 } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
-import { Task, Column } from '../types';
+import { Task, ProjectMember } from '../types';
+import { AddTaskAxios, DeleteTaskAxios, UpdateTaskAxios } from '../Axioscalls';
+
+interface Column {
+  id: 'todo' | 'in_progress' | 'done';
+  title: string;
+  color: string;
+  bgColor: string;
+}
 
 const TaskBoard: React.FC = () => {
   const { currentProject, updateProject } = useProjects();
-  const [columns, setColumns] = useState<Column[]>([]);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedFrom, setDraggedFrom] = useState<string | null>(null);
   const [showAddTask, setShowAddTask] = useState(false);
-  const [selectedColumn, setSelectedColumn] = useState<string>('');
+  const [showEditTask, setShowEditTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [selectedColumn, setSelectedColumn] = useState<'todo' | 'in_progress' | 'done'>('todo');
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
-    priority: 'medium' as 'low' | 'medium' | 'high'
+    priority: 'medium' as 'low' | 'medium' | 'high',
+    assignedTo: '' as string
   });
-
-  useEffect(() => {
-    if (currentProject) {
-      setColumns(currentProject.columns);
+  const [editTask, setEditTask] = useState({
+    title: '',
+    description: '',
+    priority: 'medium' as 'low' | 'medium' | 'high',
+    assignedTo: '' as string,
+    status: 'todo' as 'todo' | 'in_progress' | 'done'
+  });
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  // Fixed columns configuration
+  const columns: Column[] = [
+    {
+      id: 'todo',
+      title: 'To Do',
+      color: 'border-blue-500',
+      bgColor: 'bg-blue-50'
+    },
+    {
+      id: 'in_progress',
+      title: 'In Progress',
+      color: 'border-orange-500',
+      bgColor: 'bg-orange-50'
+    },
+    {
+      id: 'done',
+      title: 'Done',
+      color: 'border-green-500',
+      bgColor: 'bg-green-50'
     }
-  }, [currentProject]);
+  ];
 
-  const updateColumns = (newColumns: Column[]) => {
-    setColumns(newColumns);
-    if (currentProject) {
-      updateProject(currentProject.id, { columns: newColumns });
-    }
+  // Get tasks for each column based on their status
+  const getTasksForColumn = (columnId: 'todo' | 'in_progress' | 'done'): Task[] => {
+    if (!currentProject || !currentProject.tasks) return [];
+    return currentProject.tasks.filter(task => task.status === columnId);
+  };
+
+  // Get member name by ID
+  const getMemberName = (memberId: string): string => {
+    if (!currentProject?.members) return 'Unassigned';
+    const member = currentProject.members.find(m => m._id === memberId);
+    return member ? member.name : 'Unassigned';
+  };
+
+  // Get member avatar by ID
+  const getMemberAvatar = (memberId: string): string => {
+    if (!currentProject?.members) return '';
+    const member = currentProject.members.find(m => m._id === memberId);
+    return member?.avatar || '';
   };
 
   const handleDragStart = (e: React.DragEvent, task: Task, fromColumn: string) => {
@@ -40,78 +86,128 @@ const TaskBoard: React.FC = () => {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = (e: React.DragEvent, toColumn: string) => {
+  const handleDrop = async (e: React.DragEvent, toColumn: 'todo' | 'in_progress' | 'done') => {
     e.preventDefault();
     
-    if (!draggedTask || !draggedFrom || draggedFrom === toColumn) {
+    if (!draggedTask || !draggedFrom || draggedFrom === toColumn || !currentProject) {
       setDraggedTask(null);
       setDraggedFrom(null);
       return;
     }
 
-    const newColumns = columns.map(column => {
-      if (column.id === draggedFrom) {
-        return {
-          ...column,
-          tasks: column.tasks.filter(task => task.id !== draggedTask.id)
-        };
-      }
-      if (column.id === toColumn) {
-        return {
-          ...column,
-          tasks: [...column.tasks, draggedTask]
-        };
-      }
-      return column;
-    });
+    try {
+      
+      // Update the task's status locally
+      const updatedTasks = (currentProject.tasks || []).map(task => 
+        task._id === draggedTask._id 
+          ? { ...task, status: toColumn }
+          : task
+      );
 
-    updateColumns(newColumns);
+      // Update the project with new tasks
+      updateProject(currentProject._id, { tasks: updatedTasks });
+      // Update task status via API
+      await UpdateTaskAxios(draggedTask._id, {
+        status: toColumn,
+        userId: currentUser._id
+      });
+
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+    }
+    
     setDraggedTask(null);
     setDraggedFrom(null);
   };
 
-  const handleAddTask = () => {
-    if (!newTask.title.trim() || !selectedColumn) return;
+  const handleAddTask = async () => {
+    if (!newTask.title.trim() || !currentProject) return;
+    const response = await AddTaskAxios({
+      title: newTask.title, 
+      description: newTask.description, 
+      priority: newTask.priority, 
+      status: selectedColumn, 
+      projectId: currentProject._id,
+      assignedTo: newTask.assignedTo || undefined,
+      userId: currentUser._id
+    });
 
     const task: Task = {
-      id: Date.now().toString(),
+      _id: response.data._id,
       title: newTask.title,
       description: newTask.description,
       priority: newTask.priority,
-      createdAt: new Date()
+      status: selectedColumn,
+      assignedTo: newTask.assignedTo || undefined
     };
 
-    const newColumns = columns.map(column => {
-      if (column.id === selectedColumn) {
-        return {
-          ...column,
-          tasks: [...column.tasks, task]
-        };
-      }
-      return column;
-    });
-
-    updateColumns(newColumns);
-    setNewTask({ title: '', description: '', priority: 'medium' });
+    const updatedTasks = [...(currentProject.tasks || []), task];
+    updateProject(currentProject._id, { tasks: updatedTasks });
+    
+    setNewTask({ title: '', description: '', priority: 'medium', assignedTo: '' });
     setShowAddTask(false);
-    setSelectedColumn('');
+    setSelectedColumn('todo');
   };
 
-  const handleDeleteTask = (taskId: string, columnId: string) => {
-    const newColumns = columns.map(column => {
-      if (column.id === columnId) {
-        return {
-          ...column,
-          tasks: column.tasks.filter(task => task.id !== taskId)
-        };
-      }
-      return column;
+  const handleEditTask = async () => {
+    if (!editTask.title.trim() || !editingTask || !currentProject) return;
+    
+    try {
+      await UpdateTaskAxios(editingTask._id, {
+        title: editTask.title,
+        description: editTask.description,
+        priority: editTask.priority,
+        status: editTask.status,
+        assignedTo: editTask.assignedTo || undefined,
+        userId: currentUser._id
+      });
+
+      // Update the task locally
+      const updatedTasks = (currentProject.tasks || []).map(task => 
+        task._id === editingTask._id 
+          ? { 
+              ...task, 
+              title: editTask.title,
+              description: editTask.description,
+              priority: editTask.priority,
+              status: editTask.status,
+              assignedTo: editTask.assignedTo || undefined
+            }
+          : task
+      );
+
+      updateProject(currentProject._id, { tasks: updatedTasks });
+      
+      setShowEditTask(false);
+      setEditingTask(null);
+      setEditTask({ title: '', description: '', priority: 'medium', assignedTo: '', status: 'todo' });
+    } catch (error) {
+      console.error('Failed to update task:', error);
+    }
+  };
+
+  const openEditTaskModal = (task: Task) => {
+    setEditingTask(task);
+    setEditTask({
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      assignedTo: task.assignedTo || '',
+      status: task.status
     });
-
-    updateColumns(newColumns);
+    setShowEditTask(true);
   };
 
-  const openAddTaskModal = (columnId: string) => {
+  const handleDeleteTask = async (taskId: string) => {
+    if (!currentProject) return;
+
+    const updatedTasks = (currentProject.tasks || []).filter(task => task._id !== taskId);
+    updateProject(currentProject._id, { tasks: updatedTasks });
+
+    await DeleteTaskAxios(taskId);
+  };
+
+  const openAddTaskModal = (columnId: 'todo' | 'in_progress' | 'done') => {
     setSelectedColumn(columnId);
     setShowAddTask(true);
   };
@@ -137,7 +233,7 @@ const TaskBoard: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+    <div className="flex-1 bg-gradient-to-br from-indigo-50 via-white to-purple-50" style={{ overflowY: 'auto' }}>
       <div className="p-6">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{currentProject.name}</h1>
@@ -145,58 +241,94 @@ const TaskBoard: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {columns.map(column => (
-            <div
-              key={column.id}
-              className={`${column.bgColor} rounded-xl p-6 border-2 ${column.color} min-h-[500px] transition-all duration-200`}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, column.id)}
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">{column.title}</h2>
-                <button
-                  onClick={() => openAddTaskModal(column.id)}
-                  className="p-2 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow duration-200 text-gray-600 hover:text-gray-900"
-                >
-                  <Plus size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {column.tasks.map(task => (
-                  <div
-                    key={task.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, task, column.id)}
-                    className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 cursor-move group"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <GripVertical size={16} className="text-gray-400 group-hover:text-gray-600" />
-                        <h3 className="font-medium text-gray-900">{task.title}</h3>
-                      </div>
+          {columns.map(column => {
+            const columnTasks = getTasksForColumn(column.id);
+            
+            return (
+              <div
+                key={column.id}
+                className={`${column.bgColor} rounded-xl p-6 border-2 ${column.color} min-h-[500px] transition-all duration-200`}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, column.id)}
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-semibold text-gray-900">{column.title}</h2>
+                  {currentProject.createdBy === currentUser._id && (
                       <button
-                        onClick={() => handleDeleteTask(task.id, column.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded text-red-500 hover:bg-red-50 transition-all duration-200"
+                      onClick={() => openAddTaskModal(column.id)}
+                      className="p-2 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow duration-200 text-gray-600 hover:text-gray-900"
                       >
-                        <Trash2 size={16} />
+                        <Plus size={20} />
                       </button>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  {columnTasks.map(task => (
+                    <div
+                      key={task._id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, task, column.id)}
+                      className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 cursor-move group"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <GripVertical size={16} className="text-gray-400 group-hover:text-gray-600" />
+                          <h3 className="font-medium text-gray-900">{task.title}</h3>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <button
+                            onClick={() => openEditTaskModal(task)}
+                            className="p-1 rounded text-blue-500 hover:bg-blue-50 transition-all duration-200"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTask(task._id)}
+                            className="p-1 rounded text-red-500 hover:bg-red-50 transition-all duration-200"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {task.description && (
+                        <p className="text-gray-600 text-sm mb-3">{task.description}</p>
+                      )}
+                      
+                      <div className="flex justify-between items-center">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
+                          {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                        </span>
+                        
+                        {/* Assigned Member Display */}
+                        <div className="flex items-center gap-2">
+                          {task.assignedTo ? (
+                            <div className="flex items-center gap-1">
+                              {getMemberAvatar(task.assignedTo) ? (
+                                <img 
+                                  src={getMemberAvatar(task.assignedTo)} 
+                                  alt={getMemberName(task.assignedTo)}
+                                  className="w-6 h-6 rounded-full"
+                                />
+                              ) : (
+                                <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
+                                  <User size={12} className="text-gray-600" />
+                                </div>
+                              )}
+                              <span className="text-xs text-gray-600">{getMemberName(task.assignedTo)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">Unassigned</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    
-                    {task.description && (
-                      <p className="text-gray-600 text-sm mb-3">{task.description}</p>
-                    )}
-                    
-                    <div className="flex justify-between items-center">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                        {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Add Task Modal */}
@@ -245,6 +377,24 @@ const TaskBoard: React.FC = () => {
                     <option value="high">High</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Assign To
+                  </label>
+                  <select
+                    value={newTask.assignedTo}
+                    onChange={(e) => setNewTask(prev => ({ ...prev, assignedTo: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Unassigned</option>
+                    {currentProject.members?.map(member => (
+                      <option key={member._id} value={member._id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               
               <div className="flex gap-3 mt-6">
@@ -259,6 +409,109 @@ const TaskBoard: React.FC = () => {
                   className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200"
                 >
                   Add Task
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Task Modal */}
+        {showEditTask && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+              <h3 className="text-lg font-semibold mb-4">Edit Task</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Task Title
+                  </label>
+                  <input
+                    type="text"
+                    value={editTask.title}
+                    onChange={(e) => setEditTask(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter task title..."
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={editTask.description}
+                    onChange={(e) => setEditTask(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-24 resize-none"
+                    placeholder="Enter task description..."
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={editTask.priority}
+                    onChange={(e) => setEditTask(prev => ({ ...prev, priority: e.target.value as 'low' | 'medium' | 'high' }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editTask.status}
+                    onChange={(e) => setEditTask(prev => ({ ...prev, status: e.target.value as 'todo' | 'in_progress' | 'done' }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="todo">To Do</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Assign To
+                  </label>
+                  <select
+                    value={editTask.assignedTo}
+                    onChange={(e) => setEditTask(prev => ({ ...prev, assignedTo: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Unassigned</option>
+                    {currentProject.members?.map(member => (
+                      <option key={member._id} value={member._id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowEditTask(false);
+                    setEditingTask(null);
+                    setEditTask({ title: '', description: '', priority: 'medium', assignedTo: '', status: 'todo' });
+                  }}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEditTask}
+                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200"
+                >
+                  Update Task
                 </button>
               </div>
             </div>

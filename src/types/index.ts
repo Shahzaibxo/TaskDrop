@@ -1,40 +1,31 @@
 export interface Task {
-  id: string;
+  _id: string;
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high';
   assignedTo?: string;
-  createdAt: Date;
+  status: 'todo' | 'in_progress' | 'done';
 }
 
-export interface Column {
-  id: string;
-  title: string;
-  tasks: Task[];
-  color: string;
-  bgColor: string;
-}
 
 export interface Project {
-  id: string;
+  _id: string;
   name: string;
   description: string;
-  columns: Column[];
   members: ProjectMember[];
-  createdAt: Date;
-  updatedAt: Date;
+  tasks: Task[];
+  createdBy: string;
 }
 
 export interface ProjectMember {
-  id: string;
+  _id: string;
   email: string;
   name: string;
-  role: 'owner' | 'admin' | 'member';
   avatar?: string;
 }
 
 export interface User {
-  id: string;
+  _id: string;
   email: string;
   name: string;
   avatar?: string;

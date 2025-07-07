@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Project, Column, ProjectMember } from '../types';
-
+import { Project } from '../types';
+import { CreateProjectAxios, DeleteProjectAxios, GetProjectsAxios } from '../Axioscalls'
 interface ProjectContextType {
   projects: Project[];
   currentProject: Project | null;
@@ -8,7 +8,6 @@ interface ProjectContextType {
   createProject: (name: string, description: string, memberEmails?: string[]) => void;
   updateProject: (projectId: string, updates: Partial<Project>) => void;
   deleteProject: (projectId: string) => void;
-  shareProject: (projectId: string, email: string) => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -21,7 +20,7 @@ export const useProjects = () => {
   return context;
 };
 
-const defaultColumns: Column[] = [
+export const defaultColumns: any[] = [
   {
     id: 'todo',
     title: 'To Do',
@@ -50,100 +49,76 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
 
   useEffect(() => {
-    const savedProjects = localStorage.getItem('projects');
-    if (savedProjects) {
-      const parsedProjects = JSON.parse(savedProjects);
-      setProjects(parsedProjects);
-      if (parsedProjects.length > 0) {
-        setCurrentProject(parsedProjects[0]);
-      }
-    } else {
-      // Create default project
-      const defaultProject: Project = {
-        id: '1',
-        name: 'My First Project',
-        description: 'Welcome to your task management board!',
-        columns: defaultColumns,
-        members: [],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      setProjects([defaultProject]);
-      setCurrentProject(defaultProject);
-      localStorage.setItem('projects', JSON.stringify([defaultProject]));
-    }
-  }, []);
-
-  const createProject = (name: string, description: string, memberEmails: string[] = []) => {
-    const members: ProjectMember[] = memberEmails
-      .filter(email => email.trim() !== '')
-      .map(email => ({
-        id: Date.now().toString() + Math.random(),
-        email: email.trim(),
-        name: email.split('@')[0],
-        role: 'member' as const,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+    const initializeProjects = async () => {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const response = await GetProjectsAxios(user._id);
+      // Ensure each project has a tasks array
+      const projectsWithTasks = response.data.map((project: any) => ({
+        ...project,
+        tasks: project.tasks || []
       }));
-
-    const newProject: Project = {
-      id: Date.now().toString(),
-      name,
-      description,
-      columns: defaultColumns,
-      members,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      setProjects(projectsWithTasks);
+      setCurrentProject(projectsWithTasks[0]);
+      localStorage.setItem('projects', JSON.stringify(projectsWithTasks));
     };
 
+    initializeProjects();
+  }, []);
+
+  const createProject = async (name: string, description: string, memberEmails: string[] = []) => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      name,
+      description,
+      members: memberEmails,
+      createdBy: user._id
+    }
+
+    
+    const response = await CreateProjectAxios(payload);
+    if(response?.status === 200 || response?.status === 201){
+    const newProject: Project = {
+      _id: response.data.data._id,
+      name: response.data.data.name,
+      description,
+      members: response.data.data.members,
+      tasks: [],
+      createdBy: user._id,
+    };
     const updatedProjects = [...projects, newProject];
     setProjects(updatedProjects);
     setCurrentProject(newProject);
     localStorage.setItem('projects', JSON.stringify(updatedProjects));
+    }
   };
 
   const updateProject = (projectId: string, updates: Partial<Project>) => {
     const updatedProjects = projects.map(project =>
-      project.id === projectId
+      project._id === projectId
         ? { ...project, ...updates, updatedAt: new Date() }
         : project
     );
     
     setProjects(updatedProjects);
     
-    if (currentProject?.id === projectId) {
-      setCurrentProject({ ...currentProject, ...updates, updatedAt: new Date() });
+    if (currentProject?._id === projectId) {
+      setCurrentProject({ ...currentProject, ...updates });
     }
     
     localStorage.setItem('projects', JSON.stringify(updatedProjects));
   };
 
-  const deleteProject = (projectId: string) => {
-    const updatedProjects = projects.filter(project => project.id !== projectId);
+  const deleteProject = async (projectId: string) => {
+    const updatedProjects = projects.filter(project => project._id !== projectId);
     setProjects(updatedProjects);
     
-    if (currentProject?.id === projectId) {
+    if (currentProject?._id === projectId) {
       setCurrentProject(updatedProjects.length > 0 ? updatedProjects[0] : null);
     }
-    
+    await DeleteProjectAxios(projectId);
     localStorage.setItem('projects', JSON.stringify(updatedProjects));
   };
 
-  const shareProject = async (projectId: string, email: string) => {
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const newMember = {
-      id: Date.now().toString(),
-      email,
-      name: email.split('@')[0],
-      role: 'member' as const,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-    };
-
-    updateProject(projectId, {
-      members: [...(projects.find(p => p.id === projectId)?.members || []), newMember]
-    });
-  };
 
   return (
     <ProjectContext.Provider value={{
@@ -152,8 +127,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCurrentProject,
       createProject,
       updateProject,
-      deleteProject,
-      shareProject
+      deleteProject
     }}>
       {children}
     </ProjectContext.Provider>

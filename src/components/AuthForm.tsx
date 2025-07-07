@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { SignupAxios } from '../Axioscalls';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -24,7 +25,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ mode, onToggleMode }) => {
       if (mode === 'login') {
         await login(email, password);
       } else {
+        // await SignupAxios(email, password, name);
         await signup(email, password, name);
+        onToggleMode();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

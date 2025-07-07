@@ -28,9 +28,6 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, sidebarOpen }) => {
         </div>
 
         <div className="flex items-center space-x-4">
-          <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-            <Bell size={20} />
-          </button>
 
           <div className="relative">
             <button
@@ -51,19 +48,6 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, sidebarOpen }) => {
                   <p className="text-sm font-medium text-gray-900">{user?.name}</p>
                   <p className="text-xs text-gray-500">{user?.email}</p>
                 </div>
-                
-                <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
-                  <User size={16} />
-                  <span>Profile</span>
-                </button>
-                
-                <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
-                  <Settings size={16} />
-                  <span>Settings</span>
-                </button>
-                
-                <hr className="my-1" />
-                
                 <button
                   onClick={logout}
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"

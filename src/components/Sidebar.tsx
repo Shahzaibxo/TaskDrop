@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Plus, FolderOpen, Settings, Share2, Trash2, Users, X, Edit2, Check, UserPlus } from 'lucide-react';
+import { Plus, FolderOpen, Share2, Trash2, Users, X, Edit2, Check, UserPlus } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
 import { Project } from '../types';
+import { UpdateProjectAxios } from '../Axioscalls';
+import { toast } from 'react-toastify';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -37,11 +39,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     
     setShareLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await UpdateProjectAxios(currentProject._id, {
+        members: [...currentProject.members.map((member: any) => member.email), shareEmail]
+      });
       setShareEmail('');
       setShowShareModal(false);
     } catch (error) {
-      console.error('Failed to share project:', error);
+      toast.error('Failed to share project as user does not exist');
     } finally {
       setShareLoading(false);
     }
@@ -64,7 +68,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   };
 
   const startEditing = (project: Project) => {
-    setEditingProject(project.id);
+    setEditingProject(project._id);
     setEditName(project.name);
     setEditDescription(project.description);
   };
@@ -84,6 +88,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     setEditName('');
     setEditDescription('');
   };
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
     <>
@@ -122,9 +127,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           <div className="space-y-2">
             {projects.map((project) => (
               <div
-                key={project.id}
+                key={project._id}
                 className={`group relative p-4 rounded-lg cursor-pointer transition-colors ${
-                  currentProject?.id === project.id
+                  currentProject?._id === project._id
                     ? 'bg-blue-100 border border-blue-200'
                     : 'hover:bg-gray-100'
                 }`}
@@ -137,7 +142,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-2">
                       <FolderOpen size={16} className="text-gray-500 flex-shrink-0" />
-                      {editingProject === project.id ? (
+                      {editingProject === project._id ? (
                         <input
                           type="text"
                           value={editName}
@@ -157,7 +162,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                       )}
                     </div>
                     
-                    {editingProject === project.id ? (
+                    {editingProject === project._id ? (
                       <textarea
                         value={editDescription}
                         onChange={(e) => setEditDescription(e.target.value)}
@@ -183,9 +188,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
 
-                {currentProject?.id === project.id && (
+                {currentProject?._id === project._id && (
                   <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200">
-                    {editingProject === project.id ? (
+                    {editingProject === project._id ? (
                       <div className="flex space-x-1">
                         <button
                           onClick={(e) => {
@@ -210,44 +215,39 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                       </div>
                     ) : (
                       <div className="flex space-x-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEditing(project);
-                          }}
-                          className="p-1 text-gray-400 hover:text-blue-500 rounded"
-                          title="Edit project"
-                        >
-                          <Edit2 size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowShareModal(true);
-                          }}
-                          className="p-1 text-gray-400 hover:text-blue-500 rounded"
-                          title="Share project"
-                        >
-                          <Share2 size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                          className="p-1 text-gray-400 hover:text-gray-600 rounded"
-                          title="Project settings"
-                        >
-                          <Settings size={14} />
-                        </button>
+                        {
+                          currentProject.createdBy === currentUser._id && (
+                            <>  
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startEditing(project);
+                                }}
+                                className="p-1 text-gray-400 hover:text-blue-500 rounded"
+                                title="Edit project"
+                                >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowShareModal(true);
+                              }}
+                              className="p-1 text-gray-400 hover:text-blue-500 rounded"
+                              title="Share project"
+                              >
+                                <Share2 size={14} />
+                              </button>
+                            </>
+                        )}
                       </div>
                     )}
-                    
-                    {projects.length > 1 && editingProject !== project.id && (
+                    {projects.length > 1 && editingProject !== project._id && currentProject.createdBy === currentUser._id && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           if (confirm('Are you sure you want to delete this project?')) {
-                            deleteProject(project.id);
+                            deleteProject(project._id);
                           }
                         }}
                         className="p-1 text-gray-400 hover:text-red-500 rounded"
@@ -385,7 +385,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   <h4 className="text-sm font-medium text-gray-700 mb-2">Current Members</h4>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {currentProject.members.map((member) => (
-                      <div key={member.id} className="flex items-center space-x-2 text-sm">
+                      <div key={member._id} className="flex items-center space-x-2 text-sm">
                         <img
                           src={member.avatar}
                           alt={member.name}
@@ -393,9 +393,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                         />
                         <span className="text-gray-700">{member.name}</span>
                         <span className="text-gray-500">({member.email})</span>
-                        <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                          {member.role}
-                        </span>
                       </div>
                     ))}
                   </div>
